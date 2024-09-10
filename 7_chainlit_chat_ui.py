@@ -5,7 +5,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
 from dotenv import load_dotenv
 
-# This example add schema to the LLM output
+# This is a basic example of using Chainlit to create a chatbot
+# Run this script with the command: chainlit run 7_chainlit_chat_ui.py
+# Main points:
+# - Chainlit is used to manage the chatbot's interaction with the user
+# - The bot generates jokes based on a user-provided topic
+# - A schema is added to structure the output from the language model, including the joke and its rating
+# - The LLM output is sent back to the user via Chainlit's messaging interface
 
 # .env file is used to store the api key
 load_dotenv()

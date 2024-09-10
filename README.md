@@ -8,5 +8,5 @@
    3. pip install python-dotenv langchain langchain-community langgraph langchain-openai chainlit
 3. run program
    ->  python {filename}.py
-4. run chainlit (chat ui) (example 7)
-   -> chainlit run {filename}
+4. run chainlit (chat ui) (example 7 & 8)
+   -> chainlit run {filename}.py
