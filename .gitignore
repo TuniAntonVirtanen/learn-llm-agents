@@ -9,6 +9,9 @@ __pycache__/
 # jokes.db
 jokes.db
 
+#chainlit
+.chainlit
+
 # Distribution / packaging
 .Python
 build/
