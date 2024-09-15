@@ -1,7 +1,20 @@
+'''
+    This example adds a joke generation agent that combines user input and external data fetched via API using RAG
+    Run this script: chainlit run 8_chainlit_api_agent.py
+    Main points:
+    - Create an agent that fetches a person's name from an external API
+    - Combine the user-provided topic and fetched person name to generate a personalized joke
+    - Use Chainlit to manage the chatbot interface and interaction
+    - Use a state graph to manage the agent's workflow, starting with an API call and followed by the joke generation
+    - The final joke is personalized and structured with a rating before being sent to the user via Chainlit
+'''
+
+
 import os
 import chainlit as cl
 import requests
 from langchain_openai import ChatOpenAI
+from langchain_cohere import ChatCohere
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.messages import HumanMessage, AIMessage
@@ -9,35 +22,19 @@ from langgraph.graph import END, StateGraph
 from typing import List, TypedDict
 from dotenv import load_dotenv
 
-# This example adds a joke generation agent that combines user input and external data fetched via API using RAG
-# Run this script: chainlit run 8_chainlit_api_agent.py
-# Main points:
-# - Create an agent that fetches a person's name from an external API
-# - Combine the user-provided topic and fetched person name to generate a personalized joke
-# - Use Chainlit to manage the chatbot interface and interaction
-# - Use a state graph to manage the agent's workflow, starting with an API call and followed by the joke generation
-# - The final joke is personalized and structured with a rating before being sent to the user via Chainlit
 
-# .env file is used to store the api key
 load_dotenv()
+
+
+
 api_key = os.getenv("OPENAI_API_KEY")
-# Initialize the language model
-# use dotnenv to load OPENAI_API_KEY api key
+
 llm = ChatOpenAI(
     api_key=api_key,
     model="gpt-4o-mini",
 )
 
 
-# CHAINLIT - first message when chat starts
-@cl.on_chat_start
-async def on_chat_start():
-    await cl.Message(
-        content="Hello! I am a funny chatbot. I can make jokes about any topic. What topic would you like me to make a joke about?"
-    ).send()
-
-
-# Create a prompt template, topic is a variable
 FUNNY_LLM_PROMPT = ChatPromptTemplate.from_template(
     """
     You are a master comedian, renowned for crafting clever and witty jokes tailored to any audience. 
@@ -46,9 +43,6 @@ FUNNY_LLM_PROMPT = ChatPromptTemplate.from_template(
     """
 )
 
-
-# Create a Pydantic model for the prompt
-# Reason of this is to structure the output of the LLM
 class FunnySchema(BaseModel):
     topic: str = Field(
         description="The topic of the joke",
@@ -63,8 +57,6 @@ class FunnySchema(BaseModel):
         description="Why the joke is rated this way",
     )
 
-
-# Agents state
 class AgentState(TypedDict):
     messages: List[str]
     joke_topic: str
@@ -118,7 +110,12 @@ workflow.set_entry_point("api")
 graph = workflow.compile()
 
 
-
+# CHAINLIT - first message when chat starts
+@cl.on_chat_start
+async def on_chat_start():
+    await cl.Message(
+        content="Hello! I am a funny chatbot. I can make jokes about any topic. What topic would you like me to make a joke about?"
+    ).send()
 
 # Print the whole state
 # chainlit - send the joke to the user

@@ -18,7 +18,7 @@ def initialize_database(db_path):
             """
         CREATE TABLE jokes (
             topic TEXT NOT NULL,
-            joke TEXT NOT NULL,
+            joke TEXT NOT NULL UNIQUE,
             rating INTEGER NOT NULL
         )
         """

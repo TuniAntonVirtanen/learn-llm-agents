@@ -1,6 +1,17 @@
+'''
+    This example adds a database agent to the graph
+    Main points:
+    - Create a database agent that insert a new joke (rating over 5) into the database
+    - Database is initialized and some jokes are inserted into it on the start (if not already)
+    - Use the database tables and their descriptions in the prompt, so the agent can generate a query to insert the joke
+    - If inserted joke is a duplicate, the database will raise an error (and app will end without inserting the joke)
+'''
+
+
 import os
 import sqlite3 # for database
 from langchain_openai import ChatOpenAI
+from langchain_cohere import ChatCohere 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.messages import (
@@ -10,26 +21,16 @@ from langchain_core.messages import (
 from langgraph.graph import END, StateGraph
 from typing import List, TypedDict
 from dotenv import load_dotenv
+from langchain_core.runnables.base import RunnableSequence
 #DATABASE THINGS
 from database import init_db, sql
 
-#This example adds a database agent to the graph
-#Main points:
-#- Create a database agent that insert a new joke (rating over 5) into the database
-#- Database is initialized and some jokes are inserted into it on the start (if not already)
-#- Use the database tables and their descriptions in the prompt, so the agent can generate a query to insert the joke
-#- If inserted joke is a duplicate, the database will raise an error (and app will end without inserting the joke)
-
-
-# .env file is used to store the api key
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-# Initialize the language model
-# use dotnenv to load OPENAI_API_KEY api key
-llm = ChatOpenAI(
-    api_key=api_key,
-    model="gpt-4o-mini",
-)
+
+# Select which models you want to use
+use_cohere = False
+use_openai = True
+
 
 # Initialize the database, create the table and insert some jokes to it
 init_db.initialize_database("database/jokes.db")
@@ -41,8 +42,6 @@ print(f"\nTables in the database: {tables}")
 print(f"\nDescription of tables: {description_of_tables}")
 
 
-
-# Create a prompt template, topic is a variable
 FUNNY_LLM_PROMPT = ChatPromptTemplate.from_template(
     """
     You are the funniest person in the world, a comedian, a joker. You make up jokes about every topic. Try to make unique jokes when asked.
@@ -63,7 +62,7 @@ IMPROVER_LLM_PROMPT = ChatPromptTemplate.from_template(
 
 DATABASE_QUERY_LLM_PROMPT = ChatPromptTemplate.from_template(
     """
-    You are a seasoned database expert specializing in crafting optimized SQL queries. Your task is to generate insert query, to insert new joke to database.
+    You are a seasoned database expert specializing in crafting optimized SQL-lite queries. Your task is to generate insert query, to insert new joke to database.
 
     Topic: {topic}
     
@@ -78,13 +77,11 @@ DATABASE_QUERY_LLM_PROMPT = ChatPromptTemplate.from_template(
     {table_descriptions}
 
     Consider the structure and relationships between the tables to ensure the query efficiently identifies and ranks jokes by their relevance to the topic.
-    **Important, not duplicate jokes in the database.**
+    **Important, no duplicate jokes in the database.**
     """
 )
 
 
-# Create a Pydantic model for the prompt
-# Reason of this is to structure the output of the LLM
 class FunnySchema(BaseModel):
     topic: str = Field(
         description="The topic of the joke",
@@ -113,60 +110,64 @@ class QuerySchema(BaseModel):
         description="The generated query to find the closest jokes to the given topic",
     )
 
-
-# Agents state
 class AgentState(TypedDict):
     messages: List[str]
     joke_topic: str
     generated_joke: str
     joke_rating: int
     iteration: int
+    LLM_model: RunnableSequence
 
 
 def joker_agent(state: AgentState) -> AgentState:
     print(f"\n**Joker Agent**")
-    # Use created schema to structure the output
-    structured_llm = llm.with_structured_output(FunnySchema)
+    structured_llm = state["LLM_model"].with_structured_output(FunnySchema)
     prompt = FUNNY_LLM_PROMPT.format(topic=state["joke_topic"])
-    # Invoke the LLM with a prompt and get the structured output
     res = structured_llm.invoke(prompt)
-    # Store the result in the state
-    state["messages"] += [
-        AIMessage(content=f"Generated joke: {res.joke}"),
-        AIMessage(content=f"Topic: {res.topic}"),
-        AIMessage(content=f"Rating: {res.rating}"),
-    ]
-    # Store the joke in the state to easily access it later
-    state["generated_joke"] = res.joke
-    state["joke_rating"] = res.rating
-    print(f"Joke: {res.joke}")
-    print(f"Joke rating: {res.rating}")
-    return state
 
-# This agent will improve the joke if the orginal joke is not funny enough (used in the conditional edge)
+    try:
+        state["messages"] += [
+            AIMessage(content=f"Generated joke: {res.joke}"),
+            AIMessage(content=f"Topic: {res.topic}"),
+            AIMessage(content=f"Rating: {res.rating}"),
+        ]
+        state["generated_joke"] = res.joke
+        state["joke_rating"] = res.rating
+        print(f"Joke: {res.joke}")
+        print(f"Joke rating: {res.rating}")
+        return state
+    except Exception as e:
+        print(f"The LLM model failed with response:\n{e}\nExiting program")
+        exit()
+
 def joke_improver_agent(state: AgentState) -> AgentState:
     print(f"\n**Joke Improver Agent**")
-    # Use created schema to structure the output
-    structured_llm = llm.with_structured_output(ImprovedJokeSchema)
+    structured_llm = state["LLM_model"].with_structured_output(ImprovedJokeSchema)
     prompt = IMPROVER_LLM_PROMPT.format(topic=state["joke_topic"], joke=state["generated_joke"])
-    # Invoke the LLM with a prompt and get the structured output
     res = structured_llm.invoke(prompt)
-    # Store the result in the state
-    state["messages"] += [
-        AIMessage(content=f"Joke suggestions for new topic: {res.suggestions}"),
-        AIMessage(content=f"New topic for the joke: {res.new_topic}"),
-    ]
-    # Overwrite the joke topic with the new improved topic, so the joker agent can generate a new joke using it
-    state["joke_topic"] = res.new_topic
-    state["iteration"] += 1
-    print(f"new topic: {res.new_topic}")
-    return state
+
+    try:
+        state["messages"] += [
+            AIMessage(content=f"Joke suggestions for new topic: {res.suggestions}"),
+            AIMessage(content=f"New topic for the joke: {res.new_topic}"),
+        ]
+        state["joke_topic"] = res.new_topic
+        state["iteration"] += 1
+        print(f"new topic: {res.new_topic}")
+        return state
+    except Exception as e:
+        print(f"The LLM model failed with response:\n{e}\nExiting program")
+        exit()
 
 def database_query_agent(state: AgentState) -> AgentState:
     print(f"\n**Database Query Agent**")
     # Use created schema to structure the output
-    structured_llm = llm.with_structured_output(QuerySchema)
-    prompt = DATABASE_QUERY_LLM_PROMPT.format(topic=state["joke_topic"], tables=tables, table_descriptions=description_of_tables, joke=state["generated_joke"], rating=state["joke_rating"])
+    structured_llm = state["LLM_model"].with_structured_output(QuerySchema)
+    prompt = DATABASE_QUERY_LLM_PROMPT.format(topic=state["joke_topic"], 
+                                              tables=tables, 
+                                              table_descriptions=description_of_tables, 
+                                              joke=state["generated_joke"], 
+                                              rating=state["joke_rating"])
     # Invoke the LLM with a prompt and get the structured output
     res = structured_llm.invoke(prompt)
     # Store the result in the state
@@ -214,18 +215,32 @@ workflow.set_entry_point("joke")
 # Build the graph
 graph = workflow.compile()
 
-# Invoke the graph with the state we want to start with
-# Just for example we use same "Hello World" as a joke topic and a message
-res = graph.invoke({"messages": [HumanMessage(content="Very bad joke about bengal cats")], "joke_topic": "Very bad joke about bengal cats", "iteration": 0})
 
+if use_cohere:
+    print("\nRunning graph with Cohere:\n")
+    cohere_chat_model = ChatCohere(cohere_api_key=os.getenv("COHERE_API_KEY"))
+    res = graph.invoke({"messages": [HumanMessage(content="Very bad joke about bengal cats")], 
+                        "joke_topic": "Very bad joke about bengal cats", 
+                        "iteration": 0,
+                        "LLM_model": cohere_chat_model})
 
-# Print the whole state
-print(f"\n\n{res}")
-# Print particular fields from the state
-print(res["messages"])
-print(res["joke_topic"])
+    print(f"\n\n{res}")
+    print(res["messages"])
+    print(res["joke_topic"])
+    print(f"\n\n{res["generated_joke"]}")
 
-# Print the joke from state
-print(f"\n\n{res["generated_joke"]}")
+if use_openai:
+    print("\nRunning graph with OpenAI:\n")
+    openai_chat_model = ChatOpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4o-mini",
+    ) 
+    res = graph.invoke({"messages": [HumanMessage(content="Very bad joke about bengal cats")], 
+                        "joke_topic": "Very bad joke about bengal cats", 
+                        "iteration": 0,
+                        "LLM_model": openai_chat_model})
 
-
+    print(f"\n\n{res}")
+    print(res["messages"])
+    print(res["joke_topic"])
+    print(f"\n\n{res["generated_joke"]}")
