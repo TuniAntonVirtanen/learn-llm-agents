@@ -67,25 +67,7 @@ class ConversationalSchema(BaseModel):
 class CombinedSchema(BaseModel):
     output: Union[ConversationalSchema, FunnySchema]
 
-if use_cohere:
-    api_key = os.getenv("COHERE_API_KEY")
-    cohere_chat_model = ChatCohere(cohere_api_key=api_key)
 
-    structured_llm = cohere_chat_model.with_structured_output(FunnySchema)
-
-    # Invoke the LLM with a prompt
-    response = structured_llm.invoke(joke_prompt)
-
-    # Print the result
-    print("\n/------- Cohere's response:\n")
-    if response == None:
-        print("Response failed")
-    else:
-        print(f"{response}\n")
-        print(response.topic)
-        print(response.joke)
-        print(response.rating)
-        print(response.rating_reason)
 
 
 if use_openai:
